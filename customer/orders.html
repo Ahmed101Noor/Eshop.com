@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="../css/style.css">
 </head>
 <body>
+    <div id="alertPlaceholder" class="position-fixed top-0 end-0 p-3" style="z-index: 11"></div>
     <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-light bg-light">
         <div class="container">
@@ -96,63 +97,6 @@
     <script src="../js/auth.js"></script>
     <script src="../js/customer.js"></script>
     <script>
-        // Load customer orders
-        function loadCustomerOrders() {
-            const orders = JSON.parse(localStorage.getItem('eshop_orders') || '[]');
-            const customerOrders = orders.filter(order => order.customerId === currentUser.id);
-            const ordersAccordion = document.getElementById('ordersAccordion');
-
-            if (customerOrders.length === 0) {
-                ordersAccordion.innerHTML = '<div class="alert alert-info">No orders found.</div>';
-                return;
-            }
-
-            ordersAccordion.innerHTML = customerOrders.map((order, index) => `
-                <div class="accordion-item">
-                    <h2 class="accordion-header">
-                        <button class="accordion-button ${index === 0 ? '' : 'collapsed'}" type="button" 
-                                data-bs-toggle="collapse" data-bs-target="#order${order.id}">
-                            Order #${order.id} - ${new Date(order.date).toLocaleDateString()}
-                            <span class="badge bg-${order.status === 'pending' ? 'warning' : 
-                                order.status === 'confirmed' ? 'success' : 'danger'} ms-2">
-                                ${order.status}
-                            </span>
-                        </button>
-                    </h2>
-                    <div id="order${order.id}" class="accordion-collapse collapse ${index === 0 ? 'show' : ''}">
-                        <div class="accordion-body">
-                            <div class="table-responsive">
-                                <table class="table table-bordered">
-                                    <thead>
-                                        <tr>
-                                            <th>Product</th>
-                                            <th>Price</th>
-                                            <th>Quantity</th>
-                                            <th>Total</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${order.items.map(item => `
-                                            <tr>
-                                                <td>${item.name}</td>
-                                                <td>$${item.price.toFixed(2)}</td>
-                                                <td>${item.quantity}</td>
-                                                <td>$${(item.price * item.quantity).toFixed(2)}</td>
-                                            </tr>
-                                        `).join('')}
-                                        <tr class="table-primary">
-                                            <td colspan="3" class="text-end"><strong>Order Total:</strong></td>
-                                            <td><strong>$${order.total.toFixed(2)}</strong></td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-        }
-
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             loadCustomerOrders();

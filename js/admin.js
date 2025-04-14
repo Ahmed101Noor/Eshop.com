@@ -13,7 +13,7 @@ if (!currentUser || currentUser.role !== 'admin') {
 function initializeData() {
     if (!localStorage.getItem(PRODUCTS_KEY)) {
         localStorage.setItem(PRODUCTS_KEY, '[]');
-    }
+    }   
     if (!localStorage.getItem(CATEGORIES_KEY)) {
         localStorage.setItem(CATEGORIES_KEY, '[]');
     }
@@ -28,7 +28,13 @@ function initializeData() {
             role: 'admin'
         }]));
     }
+    if (!localStorage.getItem(CART_KEY)) {
+        localStorage.setItem(CART_KEY, '[]');
+    }
 }
+
+// Call initializeData at the start
+initializeData();
 
 // Product Management
 function loadProducts() {
@@ -136,8 +142,7 @@ function saveProduct() {
     }
 
     try {
-        const products = JSON.parse(localStorage.getItem(PRODUCTS_KEY));
-
+        const products = JSON.parse(localStorage.getItem(PRODUCTS_KEY) || '[]');
 
         // Check for duplicate product names
         const existingProduct = products.find(p => 
@@ -362,7 +367,7 @@ function deleteCategory(id) {
 
 // Order Management
 function loadOrders() {
-    const orders = JSON.parse(localStorage.getItem(ORDERS_KEY));
+    const orders = JSON.parse(localStorage.getItem(ORDERS_KEY) || '[]');
     const tbody = document.querySelector('#ordersTable tbody');
     tbody.innerHTML = '';
 
@@ -395,12 +400,41 @@ function loadOrders() {
 }
 
 function updateOrderStatus(orderId, status) {
-    const orders = JSON.parse(localStorage.getItem(ORDERS_KEY));
-    const orderIndex = orders.findIndex(o => o.id === orderId);
-    if (orderIndex !== -1) {
+    try {
+        const orders = JSON.parse(localStorage.getItem(ORDERS_KEY) || '[]');
+        const orderIndex = orders.findIndex(o => o.id === orderId);
+        
+        if (orderIndex === -1) {
+            showAlert('Order not found', 'danger');
+            return;
+        }
+
+        const order = orders[orderIndex];
+        
+        // Only process if status is changing
+        if (order.status === status) return;
+
+        // Restore stock if order is rejected
+        if (status === 'rejected') {
+            const products = JSON.parse(localStorage.getItem(PRODUCTS_KEY) || '[]');
+            order.items.forEach(item => {
+                const productIndex = products.findIndex(p => p.id === item.productId);
+                if (productIndex !== -1) {
+                    products[productIndex].stock += item.quantity;
+                }
+            });
+            localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+        }
+
+        // Update order status
         orders[orderIndex].status = status;
         localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+        
+        showAlert(`Order ${status} successfully`, 'success');
         loadOrders();
+    } catch (error) {
+        console.error('Error updating order status:', error);
+        showAlert('Failed to update order status', 'danger');
     }
 }
 

@@ -2,7 +2,8 @@
 var PRODUCTS_KEY = 'eshop_products';
 var CATEGORIES_KEY = 'eshop_categories';
 var CART_KEY = 'eshop_cart';
-var WISHLIST_KEY = 'eshop_wishlist'
+var WISHLIST_KEY = 'eshop_wishlist';
+var ORDERS_KEY = 'eshop_orders';  // Add this line
 
 // Check Authentication
 const currentUser = checkAuth();
@@ -126,9 +127,17 @@ function addToCart(productId) {
 }
 
 function removeFromCart(productId) {
-    const cart = getCart();
-    delete cart[productId];
-    saveCart(cart);
+    try {
+        const cart = getCart();
+        if (cart[productId]) {
+            delete cart[productId];
+            saveCart(cart);
+            showAlert('Item removed from cart', 'success');
+        }
+    } catch (error) {
+        console.error('Error removing from cart:', error);
+        showAlert('Failed to remove item from cart', 'danger');
+    }
 }
 
 function updateCartQuantity(productId, quantity) {
@@ -163,19 +172,31 @@ function updateCartQuantity(productId, quantity) {
 
 function updateCartDisplay() {
     const cart = getCart();
-    const products = JSON.parse(localStorage.getItem(PRODUCTS_KEY));
+    const products = JSON.parse(localStorage.getItem(PRODUCTS_KEY) || '[]');
     const cartItems = document.getElementById('cartItems');
     let total = 0;
 
-    cartItems.innerHTML = Object.entries(cart).map(([productId, quantity]) => {
+    if (!cartItems) return;
+
+    // Filter out null or undefined products
+    const validCartItems = Object.entries(cart).filter(([productId, quantity]) => {
         const product = products.find(p => p.id === parseInt(productId));
-        if (!product) return '';
-        
+        return product !== null && product !== undefined;
+    });
+
+    if (validCartItems.length === 0) {
+        cartItems.innerHTML = '<div class="alert alert-info">Your cart is empty</div>';
+        document.getElementById('cartTotal').textContent = '0.00';
+        return;
+    }
+
+    cartItems.innerHTML = validCartItems.map(([productId, quantity]) => {
+        const product = products.find(p => p.id === parseInt(productId));
         const itemTotal = product.price * quantity;
         total += itemTotal;
 
         return `
-            <div class="cart-item">
+            <div class="cart-item mb-3" id="cart-item-${product.id}">
                 <div class="d-flex align-items-center">
                     <img src="${product.image}" alt="${product.name}" width="50" class="me-2">
                     <div class="flex-grow-1">
@@ -276,70 +297,108 @@ function updateWishlistCount() {
 }
 
 // Order Management
-const ORDERS_KEY = 'eshop_orders';
+// Remove or comment out this line
+// const ORDERS_KEY = 'eshop_orders';
 
 function placeOrder() {
-    const cart = getCart();
-    const products = JSON.parse(localStorage.getItem(PRODUCTS_KEY));
-    const orders = JSON.parse(localStorage.getItem(ORDERS_KEY) || '[]');
+    try {
+        const cart = getCart();
+        if (Object.keys(cart).length === 0) {
+            showAlert('Your cart is empty', 'warning');
+            return;
+        }
 
-    // Calculate total and create order items
-    let total = 0;
-    const orderItems = Object.entries(cart).map(([productId, quantity]) => {
-        const product = products.find(p => p.id === parseInt(productId));
-        total += product.price * quantity;
-        return {
-            productId: parseInt(productId),
-            name: product.name,
-            price: product.price,
-            quantity: quantity
+        const products = JSON.parse(localStorage.getItem(PRODUCTS_KEY) || '[]');
+        const orders = JSON.parse(localStorage.getItem(ORDERS_KEY) || '[]');
+
+        // Validate all products exist and are in stock
+        const invalidItems = [];
+        Object.entries(cart).forEach(([productId, quantity]) => {
+            const product = products.find(p => p.id === parseInt(productId));
+            if (!product) {
+                invalidItems.push(`Product ID ${productId} not found`);
+            } else if (quantity > product.stock) {
+                invalidItems.push(`${product.name} has insufficient stock`);
+            }
+        });
+
+        if (invalidItems.length > 0) {
+            showAlert('Cannot place order:\n' + invalidItems.join('\n'), 'danger');
+            return;
+        }
+
+        // Calculate total and create order items
+        let total = 0;
+        const orderItems = Object.entries(cart).map(([productId, quantity]) => {
+            const product = products.find(p => p.id === parseInt(productId));
+            total += product.price * quantity;
+
+            // Update product stock
+            const productIndex = products.findIndex(p => p.id === parseInt(productId));
+            products[productIndex].stock -= quantity;
+
+            return {
+                productId: parseInt(productId),
+                name: product.name,
+                price: product.price,
+                quantity: quantity
+            };
+        });
+
+        // Create new order
+        const order = {
+            id: Date.now(), // Use timestamp as ID
+            customerId: currentUser.id,
+            customerEmail: currentUser.email,
+            items: orderItems,
+            total: total,
+            status: 'pending',
+            date: new Date().toISOString()
         };
-    });
 
-    // Create new order
-    const order = {
-        id: orders.length + 1,
-        customerId: currentUser.id,
-        customerEmail: currentUser.email,
-        items: orderItems,
-        total: total,
-        status: 'pending',
-        date: new Date().toISOString()
-    };
+        // Update orders, products, and clear cart
+        orders.push(order);
+        localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+        localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+        localStorage.setItem(CART_KEY, JSON.stringify({}));
 
-    // Update orders and clear cart
-    orders.push(order);
-    localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
-    localStorage.setItem(CART_KEY, JSON.stringify({}));
-
-    // Update UI
-    updateCartCount();
-    updateCartDisplay();
-    
-    // Close cart offcanvas and show success message
-    bootstrap.Offcanvas.getInstance(document.getElementById('cartOffcanvas')).hide();
-    alert('Order placed successfully!');
-    
-    // Refresh orders display if on orders page
-    if (window.location.pathname.includes('orders.html')) {
-        loadCustomerOrders();
+        // Update UI
+        updateCartCount();
+        updateCartDisplay();
+        
+        // Close cart offcanvas and show success message
+        const cartOffcanvas = document.getElementById('cartOffcanvas');
+        if (cartOffcanvas) {
+            bootstrap.Offcanvas.getInstance(cartOffcanvas).hide();
+        }
+        showAlert('Order placed successfully!', 'success');
+        
+        // Refresh orders display if on orders page
+        if (window.location.pathname.includes('orders.html')) {
+            loadCustomerOrders();
+        }
+    } catch (error) {
+        console.error('Error placing order:', error);
+        showAlert('Failed to place order. Please try again.', 'danger');
     }
 }
 
 function loadCustomerOrders() {
     const orders = JSON.parse(localStorage.getItem(ORDERS_KEY) || '[]');
-    let customerOrders = orders.filter(order => order.customerId === currentUser.id);
+    let customerOrders = orders.filter(order => order && order.customerId === currentUser.id);
     const ordersAccordion = document.getElementById('ordersAccordion');
-    const statusFilter = document.getElementById('statusFilter').value;
-    const sortOrder = document.getElementById('sortOrder').value;
+    const statusFilter = document.getElementById('statusFilter')?.value || '';
+    const sortOrder = document.getElementById('sortOrder')?.value || 'newest';
 
     // Apply status filter
     if (statusFilter) {
         customerOrders = customerOrders.filter(order => order.status === statusFilter);
     }
 
-    if (customerOrders.length === 0) {
-        ordersAccordion.innerHTML = '<div class="alert alert-info">No orders found.</div>';
+    if (!customerOrders || customerOrders.length === 0) {
+        if (ordersAccordion) {
+            ordersAccordion.innerHTML = '<div class="alert alert-info">No orders found.</div>';
+        }
         return;
     }
 
@@ -392,13 +451,66 @@ function loadCustomerOrders() {
                             </tbody>
                         </table>
                     </div>
-                    <div class="mt-3">
+                    <div class="mt-3 d-flex justify-content-between align-items-center">
                         <small class="text-muted">Order placed on ${new Date(order.date).toLocaleString()}</small>
+                        ${order.status === 'pending' ? `
+                            <button class="btn btn-danger cancel-order-btn" data-order-id="${order.id}">
+                                <i class="bi bi-x-circle"></i> Cancel Order
+                            </button>
+                        ` : ''}
                     </div>
                 </div>
             </div>
         </div>
     `).join('');
+
+    // Add event listeners for cancel buttons
+    document.querySelectorAll('.cancel-order-btn').forEach(button => {
+        button.addEventListener('click', (e) => {
+            const orderId = parseInt(e.currentTarget.dataset.orderId);
+            cancelOrder(orderId);
+        });
+    });
+}
+
+function cancelOrder(orderId) {
+    try {
+        const orders = JSON.parse(localStorage.getItem(ORDERS_KEY) || '[]');
+        const orderIndex = orders.findIndex(o => o.id === orderId);
+        
+        if (orderIndex === -1) {
+            showAlert('Order not found', 'danger');
+            return;
+        }
+
+        // Only allow canceling pending orders
+        if (orders[orderIndex].status !== 'pending') {
+            showAlert('Only pending orders can be cancelled', 'danger');
+            return;
+        }
+
+        // Restore product stock
+        const products = JSON.parse(localStorage.getItem(PRODUCTS_KEY) || '[]');
+        orders[orderIndex].items.forEach(item => {
+            const productIndex = products.findIndex(p => p.id === item.productId);
+            if (productIndex !== -1) {
+                products[productIndex].stock += item.quantity;
+            }
+        });
+
+        // Update order status
+        orders[orderIndex].status = 'cancelled';
+        
+        // Save changes
+        localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+        localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+        
+        showAlert('Order cancelled successfully', 'success');
+        loadCustomerOrders();
+    } catch (error) {
+        console.error('Error cancelling order:', error);
+        showAlert('Failed to cancel order', 'danger');
+    }
 }
 
 // Initialize
